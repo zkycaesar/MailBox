@@ -21,7 +21,8 @@ class UI(QWidget):
 
 if __name__ == '__main__':
     s = IMAP4('imap.sina.com')
-    s.login('zkycaesar', 'em_sina_271828')
+    pwd = input("password: ")
+    s.login('zkycaesar', pwd)
     rsp, msg_num = s.select('INBOX', False)
     # rsp, data = s.fetch(str(int(msg_num[0]) - 1), '(BODY[TEXT])')
     # content = base64.b64decode(data[0][1])
