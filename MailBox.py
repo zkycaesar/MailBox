@@ -81,6 +81,21 @@ if __name__ == '__main__':
     # app = QApplication(sys.argv)
     # sys.exit(app.exec_())
 
+    dic = {}
+    for i in range(256):
+        i_key1 = hex(i)
+        if len(i_key1) == 3:
+            i_key1 = i_key1.replace("0x", "=0")
+        else:
+            i_key1 = i_key1.replace("0x", "=")
+        i_key2 = i_key1.upper()
+        # i_hex = bytearray(1)
+        # i_hex[0] = i
+        # i_value = str(bytes(i_hex), encoding="utf-8")
+        dic[i_key1] = i
+        dic[i_key2] = i
+    print(dic)
+
     conn = sqlite3.connect('test.db')
     cursor = conn.execute("SELECT subject, mfrom, mto, content  from MAILS")
     obj = AES.new('1234567812345678', AES.MODE_ECB)
@@ -92,9 +107,14 @@ if __name__ == '__main__':
         print(st)
 
         pattern = re.compile(r'=[?](UTF-8|utf-8|GB2312|gb2312)[?][QqBb][?].+?[?]=')
-        match = pattern.finditer(st)
-        for m in match:
-            print(m.group())
+        # match = pattern.finditer(st)
+        # for m in match:
+        #     print(m.group())
+        #     pattern = re.compile(r'=[0-9A-Fa-f][0-9A-Fa-f]')
+        match = pattern.findall(st)
+        print(match)
+
+
         # print(obj.decrypt(row[1]))
         # print(obj.decrypt(row[2]))
         # print(obj.decrypt(row[3]))
