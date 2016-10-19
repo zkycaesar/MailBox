@@ -8,99 +8,208 @@ import traceback
 import re
 import sqlite3
 from Crypto.Cipher import AES
-from PyQt5.QtWidgets import QApplication, QWidget, QHBoxLayout, QVBoxLayout, QListWidget,QListWidgetItem,QLabel,QListView
-from PyQt5.QtCore import QSize
-from PyQt5.QtGui import QIcon,QFont,QStandardItemModel
+from PyQt5.QtWidgets import QApplication, QWidget, QHBoxLayout, QVBoxLayout, QListWidget,QListWidgetItem,QLabel,\
+    QListView,QStyledItemDelegate,QStyle
+from PyQt5.QtCore import QSize,Qt,QRectF
+from PyQt5.QtGui import QIcon,QFont,QStandardItemModel,QStandardItem,QPainter,QPen,QFontMetrics
 from PyQt5.QtWebEngineWidgets import QWebEngineView
+
+roles = {"from" : Qt.UserRole+1, "subject" : Qt.UserRole+2, "date" : Qt.UserRole+3, "content" : Qt.UserRole+4}
+
+class mailViewDelegate(QStyledItemDelegate):
+    def __init__(self):
+        super().__init__()
+        self.iconSize = QSize(60, 60)
+        self.padding = 5
+        # painter = QPainter()
+        # painter.drawText()
+        # painter.res
+
+    def sizeHint(self, option, index):
+        headerFont = QFont("times", 10)
+        headerFont.setBold(True)
+        subjectFont = QFont("times", 10)
+        headerFm = QFontMetrics(headerFont)
+        subjectFm = QFontMetrics(subjectFont)
+
+        headerRect = headerFm.boundingRect(0, 0, option.rect.width() - self.iconSize.width(), 0,
+                                           Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, index.data(roles['from']))
+        subheaderRect = subjectFm.boundingRect(0, 0, option.rect.width() - self.iconSize.width(), 0,
+                                               Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
+                                               index.data(roles['subject']))
+        size = QSize(option.rect.width(), headerRect.height() + subheaderRect.height() + 3 * self.padding)
+
+        if size.height() < self.iconSize.height():
+            size.setHeight(self.iconSize.height())
+        return size
+
+    def paint(self, painter, option, index):
+        painter.save()
+        if option.state & QStyle.State_Selected:
+            painter.fillRect(option.rect, option.palette.highlight())
+        headerText = index.data(roles['from'])
+        subjectText = index.data(roles['subject'])
+
+        headerFont = QFont("times", 10)
+        headerFont.setBold(True)
+        subjectFont = QFont("times", 10)
+        headerFm = QFontMetrics(headerFont)
+        subjectFm = QFontMetrics(subjectFont)
+
+        headerRect = headerFm.boundingRect(option.rect.left() + self.iconSize.width(), option.rect.top() + self.padding,
+                              option.rect.width() - self.iconSize.width(), 0,
+                              Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, headerText)
+        subheaderRect = subjectFm.boundingRect(headerRect.left(), headerRect.bottom() + self.padding,
+                                 option.rect.width() - self.iconSize.width(), 0,
+                                 Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, subjectText)
+
+        painter.setPen(Qt.black)
+
+        painter.setFont(headerFont)
+        painter.drawText(headerRect, Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, headerText)
+
+        painter.setFont(subjectFont)
+        painter.drawText(subheaderRect, Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, subjectText)
+
+
+        painter.restore()
 
 class UI(QWidget):
     def __init__(self):
         super().__init__()
+        conn = sqlite3.connect('test.db')
+        cursor = conn.execute("SELECT * from MAILS LIMIT 20")
+        self.mailItemList = []
+        for row in cursor:
+            mailItem = QStandardItem()
+            try:
+                mailItem.setData(str(DecryptData(row[2]), encoding='utf-8'), roles['from'])
+            except:
+                mailItem.setData(str(DecryptData(row[2]), encoding='GBK'), roles['from'])
+            try:
+                mailItem.setData(str(DecryptData(row[1]), encoding='utf-8'), roles['subject'])
+            except:
+                mailItem.setData(str(DecryptData(row[1]), encoding='GBK'), roles['subject'])
+            try:
+                mailItem.setData(str(DecryptData(row[6]), encoding='utf-8'), roles['content'])
+            except:
+                mailItem.setData(str(DecryptData(row[6]), encoding='GBK'), roles['content'])
+            try:
+                mailItem.setData(str(DecryptData(row[4]), encoding='utf-8'), roles['date'])
+            except:
+                mailItem.setData(str(DecryptData(row[4]), encoding='GBK'), roles['date'])
+
+            self.mailItemList.append(mailItem)
         self.initUI()
 
     def initUI(self):
         self.setWindowTitle("Mailbox")
         windowLayout = QHBoxLayout()
 
-        self.mfrom = []
-        self.msubject = []
-        self.mcontent = []
-        self.mdate = []
-        mailList = QListWidget()
-        conn = sqlite3.connect('test.db')
-        cursor = conn.execute("SELECT * from MAILS LIMIT 20")
-        itemIndex = 0
-        for row in cursor:
-            try:
-                self.mfrom.append(str(DecryptData(row[2]), encoding='utf-8'))
-            except:
-                self.mfrom.append(str(DecryptData(row[2]), encoding='GBK'))
-            try:
-                self.msubject.append(str(DecryptData(row[1]), encoding='utf-8'))
-            except:
-                self.msubject.append(str(DecryptData(row[1]), encoding='GBK'))
-            try:
-                self.mcontent.append(str(DecryptData(row[6]), encoding='utf-8'))
-            except:
-                self.mcontent.append(str(DecryptData(row[6]), encoding='GBK'))
-            try:
-                self.mdate.append(str(DecryptData(row[4]), encoding='utf-8'))
-            except:
-                self.mdate.append(str(DecryptData(row[4]), encoding='GBK'))
-            newItem = QListWidgetItem()
-            newItem.setText(self.mfrom[itemIndex]+'\r\n'+self.msubject[itemIndex])
-            mailList.insertItem(itemIndex, newItem)
-            itemIndex += 1
-
         mailListView = QListView()
         mailListModel = QStandardItemModel()
-
+        for i in range(20):
+            mailListModel.appendRow(self.mailItemList[i])
+        viewDelegate = mailViewDelegate()
         mailListView.setModel(mailListModel)
-
-        mailList.currentItemChanged.connect(self.currentChanged)
-        # mailList.setGridSize(QSize(200, 40))
-        windowLayout.addWidget(mailList)
-
-        self.mailSubject = QLabel()
-        self.mailSubject.setText(self.msubject[0])
-        qFont1 = QFont("Helvetica")
-        qFont1.setBold(True)
-        qFont1.setPointSize(15)
-        self.mailSubject.setFont(qFont1)
-
-        self.mailFrom = QLabel()
-        self.mailFrom.setText("发件人："+self.mfrom[0])
-        qFont2 = QFont("serif")
-        qFont2.setBold(False)
-        qFont2.setPointSize(10)
-        self.mailFrom.setFont(qFont2)
-
-        self.mailDate = QLabel()
-        self.mailDate.setText("时 间：" + self.mdate[0])
-        qFont2 = QFont("serif")
-        qFont2.setBold(False)
-        qFont2.setPointSize(10)
-        self.mailDate.setFont(qFont2)
+        mailListView.setItemDelegate(viewDelegate)
+        # mailListView.currentItemChanged.connect(self.currentChanged)
+        windowLayout.addWidget(mailListView)
 
         self.webView = QWebEngineView()
-        self.webView.setHtml(self.mcontent[0])
+        self.webView.setHtml(self.mailItemList[0].data(roles['content']))
+        windowLayout.addWidget(self.webView)
 
-        layout2 = QVBoxLayout()
-        layout2.addWidget(self.mailSubject)
-        layout2.addWidget(self.mailFrom)
-        layout2.addWidget(self.mailDate)
-        layout2.addWidget(self.webView)
-        viewRight = QWidget()
-        viewRight.setLayout(layout2)
-        windowLayout.addWidget(viewRight)
         self.setLayout(windowLayout)
 
-    def currentChanged(self, currentListItem, previousListItem):
-        index = currentListItem.listWidget().currentRow()
-        self.webView.setHtml(self.mcontent[index])
-        self.mailSubject.setText(self.msubject[index])
-        self.mailFrom.setText("发件人："+self.mfrom[index])
-        self.mailDate.setText("时 间：" + self.mdate[index])
+        # def currentChanged(self, currentListItem, previousListItem):
+        #     index = currentListItem.listWidget().currentRow()
+        #     self.webView.setHtml(self.mailItemList[0].data()[index])
+
+
+# class UI(QWidget):
+#     def __init__(self):
+#         super().__init__()
+#         self.initUI()
+#
+#     def initUI(self):
+#         self.setWindowTitle("Mailbox")
+#         windowLayout = QHBoxLayout()
+#
+#         self.mfrom = []
+#         self.msubject = []
+#         self.mcontent = []
+#         self.mdate = []
+#         mailList = QListWidget()
+#         conn = sqlite3.connect('test.db')
+#         cursor = conn.execute("SELECT * from MAILS LIMIT 20")
+#         itemIndex = 0
+#         for row in cursor:
+#             try:
+#                 self.mfrom.append(str(DecryptData(row[2]), encoding='utf-8'))
+#             except:
+#                 self.mfrom.append(str(DecryptData(row[2]), encoding='GBK'))
+#             try:
+#                 self.msubject.append(str(DecryptData(row[1]), encoding='utf-8'))
+#             except:
+#                 self.msubject.append(str(DecryptData(row[1]), encoding='GBK'))
+#             try:
+#                 self.mcontent.append(str(DecryptData(row[6]), encoding='utf-8'))
+#             except:
+#                 self.mcontent.append(str(DecryptData(row[6]), encoding='GBK'))
+#             try:
+#                 self.mdate.append(str(DecryptData(row[4]), encoding='utf-8'))
+#             except:
+#                 self.mdate.append(str(DecryptData(row[4]), encoding='GBK'))
+#             newItem = QListWidgetItem()
+#             newItem.setText(self.mfrom[itemIndex]+'\r\n'+self.msubject[itemIndex])
+#             mailList.insertItem(itemIndex, newItem)
+#             itemIndex += 1
+#
+#         mailList.currentItemChanged.connect(self.currentChanged)
+#         # mailList.setGridSize(QSize(200, 40))
+#         windowLayout.addWidget(mailList)
+#
+#         self.mailSubject = QLabel()
+#         self.mailSubject.setText(self.msubject[0])
+#         qFont1 = QFont("Helvetica")
+#         qFont1.setBold(True)
+#         qFont1.setPointSize(15)
+#         self.mailSubject.setFont(qFont1)
+#
+#         self.mailFrom = QLabel()
+#         self.mailFrom.setText("发件人："+self.mfrom[0])
+#         qFont2 = QFont("serif")
+#         qFont2.setBold(False)
+#         qFont2.setPointSize(10)
+#         self.mailFrom.setFont(qFont2)
+#
+#         self.mailDate = QLabel()
+#         self.mailDate.setText("时 间：" + self.mdate[0])
+#         qFont2 = QFont("serif")
+#         qFont2.setBold(False)
+#         qFont2.setPointSize(10)
+#         self.mailDate.setFont(qFont2)
+#
+#         self.webView = QWebEngineView()
+#         self.webView.setHtml(self.mcontent[0])
+#
+#         layout2 = QVBoxLayout()
+#         layout2.addWidget(self.mailSubject)
+#         layout2.addWidget(self.mailFrom)
+#         layout2.addWidget(self.mailDate)
+#         layout2.addWidget(self.webView)
+#         viewRight = QWidget()
+#         viewRight.setLayout(layout2)
+#         windowLayout.addWidget(viewRight)
+#         self.setLayout(windowLayout)
+#
+#     def currentChanged(self, currentListItem, previousListItem):
+#         index = currentListItem.listWidget().currentRow()
+#         self.webView.setHtml(self.mcontent[index])
+#         self.mailSubject.setText(self.msubject[index])
+#         self.mailFrom.setText("发件人："+self.mfrom[index])
+#         self.mailDate.setText("时 间：" + self.mdate[index])
 
 def EncryptData(plainText):
     file = open("mima.txt")
