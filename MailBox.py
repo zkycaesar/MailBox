@@ -9,8 +9,8 @@ import re
 import sqlite3
 from Crypto.Cipher import AES
 from PyQt5.QtWidgets import QApplication, QWidget, QHBoxLayout, QVBoxLayout, QListWidget,QListWidgetItem,QLabel,\
-    QListView,QStyledItemDelegate,QStyle
-from PyQt5.QtCore import QSize,Qt,QRectF
+    QListView,QStyledItemDelegate,QStyle,QStyleOptionButton
+from PyQt5.QtCore import QSize,Qt,QRectF,QPoint,QRect,QEvent
 from PyQt5.QtGui import QIcon,QFont,QStandardItemModel,QStandardItem,QPainter,QPen,QFontMetrics
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 
@@ -19,7 +19,7 @@ roles = {"from" : Qt.UserRole+1, "subject" : Qt.UserRole+2, "date" : Qt.UserRole
 class mailViewDelegate(QStyledItemDelegate):
     def __init__(self):
         super().__init__()
-        self.iconSize = QSize(60, 60)
+        self.iconSize = QSize(40, 40)
         self.padding = 5
         # painter = QPainter()
         # painter.drawText()
@@ -44,9 +44,20 @@ class mailViewDelegate(QStyledItemDelegate):
         return size
 
     def paint(self, painter, option, index):
+        self.initStyleOption(option, index)
         painter.save()
         if option.state & QStyle.State_Selected:
             painter.fillRect(option.rect, option.palette.highlight())
+
+        checkBox = QStyleOptionButton()
+        checkBox.rect = self.getCheckBoxRect(option)
+        checked = bool(index.model().data(index, Qt.DisplayRole))
+        if checked:
+            checkBox.state |= QStyle.State_On
+        else:
+            checkBox.state |= QStyle.State_Off
+        QApplication.style().drawControl(QStyle.CE_CheckBox, checkBox, painter)
+
         headerText = index.data(roles['from'])
         subjectText = index.data(roles['subject'])
 
@@ -59,7 +70,7 @@ class mailViewDelegate(QStyledItemDelegate):
         headerRect = headerFm.boundingRect(option.rect.left() + self.iconSize.width(), option.rect.top() + self.padding,
                               option.rect.width() - self.iconSize.width(), 0,
                               Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, headerText)
-        subheaderRect = subjectFm.boundingRect(headerRect.left(), headerRect.bottom() + self.padding,
+        subjectRect = subjectFm.boundingRect(headerRect.left(), headerRect.bottom() + self.padding,
                                  option.rect.width() - self.iconSize.width(), 0,
                                  Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, subjectText)
 
@@ -69,10 +80,43 @@ class mailViewDelegate(QStyledItemDelegate):
         painter.drawText(headerRect, Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, headerText)
 
         painter.setFont(subjectFont)
-        painter.drawText(subheaderRect, Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, subjectText)
+        painter.drawText(subjectRect, Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, subjectText)
+
+        painter.setPen(Qt.gray)
+        painter.drawLine(option.rect.left(), option.rect.bottom(), option.rect.right(), option.rect.bottom())
 
 
         painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        # Do not change the checkbox-state
+        if event.type() == QEvent.MouseButtonRelease or event.type() == QEvent.MouseButtonDblClick:
+            if event.button() != Qt.LeftButton or not self.getCheckBoxRect(option).contains(event.pos()):
+                return False
+            if event.type() == QEvent.MouseButtonDblClick:
+                return True
+        # elif event.type() == QEvent.KeyPress:
+        #     if event.key() != Qt.Key_Space and event.key() !=Qt.Key_Select:
+        #         return False
+        else:
+            return False
+        # Change the checkbox-state
+        self.setModelData(None, model, index)
+        return True
+
+    def setModelData(self, editor, model, index):
+        newValue = not bool(index.model().data(index, Qt.DisplayRole))
+        model.setData(index, newValue, Qt.EditRole)
+
+    def getCheckBoxRect(self, option):
+        check_box_style_option = QStyleOptionButton()
+        check_box_rect = QApplication.style().subElementRect(QStyle.SE_CheckBoxIndicator,
+                                                                   check_box_style_option, None)
+        check_box_point = QPoint(option.rect.x() + check_box_rect.width() / 2,
+                                        option.rect.y() + check_box_rect.height() / 2)
+        return QRect(check_box_point, check_box_rect.size())
+
+
 
 class UI(QWidget):
     def __init__(self):
@@ -82,6 +126,7 @@ class UI(QWidget):
         self.mailItemList = []
         for row in cursor:
             mailItem = QStandardItem()
+            mailItem.setCheckable(True)
             try:
                 mailItem.setData(str(DecryptData(row[2]), encoding='utf-8'), roles['from'])
             except:
