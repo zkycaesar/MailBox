@@ -8,22 +8,19 @@ import traceback
 import re
 import sqlite3
 from Crypto.Cipher import AES
-from PyQt5.QtWidgets import QApplication, QWidget, QHBoxLayout, QVBoxLayout, QListWidget,QListWidgetItem,QLabel,\
-    QListView,QStyledItemDelegate,QStyle,QStyleOptionButton
-from PyQt5.QtCore import QSize,Qt,QRectF,QPoint,QRect,QEvent
-from PyQt5.QtGui import QIcon,QFont,QStandardItemModel,QStandardItem,QPainter,QPen,QFontMetrics
+from PyQt5.QtWidgets import QApplication, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QListView, QStyledItemDelegate,\
+    QStyle, QStyleOptionButton, QPushButton, QMainWindow
+from PyQt5.QtCore import QSize, Qt, QRectF, QPoint, QRect, QEvent
+from PyQt5.QtGui import QIcon, QFont, QStandardItemModel, QStandardItem, QPainter, QPen, QFontMetrics
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 
-roles = {"from" : Qt.UserRole+1, "subject" : Qt.UserRole+2, "date" : Qt.UserRole+3, "content" : Qt.UserRole+4}
+roles = {"from": Qt.UserRole+1, "subject": Qt.UserRole+2, "date": Qt.UserRole+3, "content": Qt.UserRole+4, "checked": Qt.UserRole+5}
 
 class mailViewDelegate(QStyledItemDelegate):
     def __init__(self):
         super().__init__()
         self.iconSize = QSize(40, 40)
         self.padding = 5
-        # painter = QPainter()
-        # painter.drawText()
-        # painter.res
 
     def sizeHint(self, option, index):
         headerFont = QFont("times", 10)
@@ -51,7 +48,7 @@ class mailViewDelegate(QStyledItemDelegate):
 
         checkBox = QStyleOptionButton()
         checkBox.rect = self.getCheckBoxRect(option)
-        checked = bool(index.model().data(index, Qt.DisplayRole))
+        checked = bool(index.model().data(index, roles['checked']))
         if checked:
             checkBox.state |= QStyle.State_On
         else:
@@ -105,8 +102,8 @@ class mailViewDelegate(QStyledItemDelegate):
         return True
 
     def setModelData(self, editor, model, index):
-        newValue = not bool(index.model().data(index, Qt.DisplayRole))
-        model.setData(index, newValue, Qt.EditRole)
+        newValue = not bool(index.model().data(index, roles['checked']))
+        model.setData(index, newValue, roles['checked'])
 
     def getCheckBoxRect(self, option):
         check_box_style_option = QStyleOptionButton()
@@ -117,16 +114,30 @@ class mailViewDelegate(QStyledItemDelegate):
         return QRect(check_box_point, check_box_rect.size())
 
 
-
-class UI(QWidget):
+class UI(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.setWindowTitle("Mailbox")
         conn = sqlite3.connect('test.db')
-        cursor = conn.execute("SELECT * from MAILS LIMIT 20")
+        cursor = conn.execute("SELECT COUNT(*) from MAILS")
+        self.totalMailCount = cursor.fetchone()[0]
+        self.currentPage = 1
         self.mailItemList = []
+        self.mailListModel = QStandardItemModel()
+        self.fetchFromDB(self.currentPage)
+        self.initUI()
+
+    def fetchFromDB(self, page):
+        conn = sqlite3.connect('test.db')
+        pageOffset = str((page-1)*20+1)
+        cursor = conn.execute("SELECT * from MAILS LIMIT 20 OFFSET ?", (pageOffset,))
+        self.mailItemList = []
+        self.mailListModel.removeRows(0, self.mailListModel.rowCount())
+        rowNum = 0
         for row in cursor:
             mailItem = QStandardItem()
-            mailItem.setCheckable(True)
+            mailItem.setEditable(False)
+            mailItem.setData(False, roles['checked'])
             try:
                 mailItem.setData(str(DecryptData(row[2]), encoding='utf-8'), roles['from'])
             except:
@@ -145,116 +156,114 @@ class UI(QWidget):
                 mailItem.setData(str(DecryptData(row[4]), encoding='GBK'), roles['date'])
 
             self.mailItemList.append(mailItem)
-        self.initUI()
+            self.mailListModel.appendRow(self.mailItemList[rowNum])
+            rowNum += 1
 
     def initUI(self):
-        self.setWindowTitle("Mailbox")
+        menubar = self.menuBar()
+        menubar.addMenu('&File')
+        menubar.addMenu('&Edit')
+        menubar.addMenu('&View')
         windowLayout = QHBoxLayout()
 
-        mailListView = QListView()
-        mailListModel = QStandardItemModel()
-        for i in range(20):
-            mailListModel.appendRow(self.mailItemList[i])
+        self.mailListView = QListView()
         viewDelegate = mailViewDelegate()
-        mailListView.setModel(mailListModel)
-        mailListView.setItemDelegate(viewDelegate)
-        # mailListView.currentItemChanged.connect(self.currentChanged)
-        windowLayout.addWidget(mailListView)
+        self.mailListView.setModel(self.mailListModel)
+        self.mailListView.setItemDelegate(viewDelegate)
+        self.mailListView.clicked.connect(self.itemClicked)
+
+        self.lastPageButton = QPushButton()
+        self.lastPageButton.setText("上一页")
+        self.lastPageButton.clicked.connect(self.lastPageButtonClicked)
+        if self.currentPage == 1:
+            self.lastPageButton.setEnabled(False)
+        self.pageCount = QLabel()
+        self.pageCount.setText(str(self.currentPage))
+        self.nextPageButton = QPushButton()
+        self.nextPageButton.setText("下一页")
+        self.nextPageButton.clicked.connect(self.nextPageButtonClicked)
+        if self.currentPage * 20 >= self.totalMailCount:
+            self.nextPageButton.setEnabled(False)
+        buttonLayout = QHBoxLayout()
+        buttonLayout.addStretch(1)
+        buttonLayout.addWidget(self.lastPageButton)
+        buttonLayout.addWidget(self.pageCount)
+        buttonLayout.addWidget(self.nextPageButton)
+        buttonBoxView = QWidget()
+        buttonBoxView.setLayout(buttonLayout)
+
+        viewLeft = QWidget()
+        layoutLeft = QVBoxLayout()
+        layoutLeft.addWidget(self.mailListView)
+        layoutLeft.addWidget(buttonBoxView)
+        viewLeft.setLayout(layoutLeft)
+        windowLayout.addWidget(viewLeft)
+
+        self.mailSubject = QLabel()
+        self.mailSubject.setText(self.mailItemList[0].data(roles['subject']))
+        qFont1 = QFont("Helvetica")
+        qFont1.setBold(True)
+        qFont1.setPointSize(15)
+        self.mailSubject.setFont(qFont1)
+
+        self.mailFrom = QLabel()
+        self.mailFrom.setText("发件人："+self.mailItemList[0].data(roles['from']))
+        qFont2 = QFont("serif")
+        qFont2.setBold(False)
+        qFont2.setPointSize(10)
+        self.mailFrom.setFont(qFont2)
+
+        self.mailDate = QLabel()
+        self.mailDate.setText("时 间：" + self.mailItemList[0].data(roles['date']))
+        qFont2 = QFont("serif")
+        qFont2.setBold(False)
+        qFont2.setPointSize(10)
+        self.mailDate.setFont(qFont2)
 
         self.webView = QWebEngineView()
         self.webView.setHtml(self.mailItemList[0].data(roles['content']))
-        windowLayout.addWidget(self.webView)
 
-        self.setLayout(windowLayout)
+        layoutRight = QVBoxLayout()
+        layoutRight.addWidget(self.mailSubject)
+        layoutRight.addWidget(self.mailFrom)
+        layoutRight.addWidget(self.mailDate)
+        layoutRight.addWidget(self.webView)
+        viewRight = QWidget()
+        viewRight.setLayout(layoutRight)
+        windowLayout.addWidget(viewRight)
 
-        # def currentChanged(self, currentListItem, previousListItem):
-        #     index = currentListItem.listWidget().currentRow()
-        #     self.webView.setHtml(self.mailItemList[0].data()[index])
+        windowView = QWidget()
+        windowView.setLayout(windowLayout)
+        self.setCentralWidget(windowView)
+        # self.setLayout(windowLayout)
 
+    def lastPageButtonClicked(self, checked):
+        if self.currentPage > 1:
+            self.currentPage -= 1
+            self.nextPageButton.setEnabled(True)
+            self.pageCount.setText(str(self.currentPage))
+            self.fetchFromDB(self.currentPage)
+            self.mailListView.repaint()
+        if self.currentPage == 1:
+            self.lastPageButton.setEnabled(False)
 
-# class UI(QWidget):
-#     def __init__(self):
-#         super().__init__()
-#         self.initUI()
-#
-#     def initUI(self):
-#         self.setWindowTitle("Mailbox")
-#         windowLayout = QHBoxLayout()
-#
-#         self.mfrom = []
-#         self.msubject = []
-#         self.mcontent = []
-#         self.mdate = []
-#         mailList = QListWidget()
-#         conn = sqlite3.connect('test.db')
-#         cursor = conn.execute("SELECT * from MAILS LIMIT 20")
-#         itemIndex = 0
-#         for row in cursor:
-#             try:
-#                 self.mfrom.append(str(DecryptData(row[2]), encoding='utf-8'))
-#             except:
-#                 self.mfrom.append(str(DecryptData(row[2]), encoding='GBK'))
-#             try:
-#                 self.msubject.append(str(DecryptData(row[1]), encoding='utf-8'))
-#             except:
-#                 self.msubject.append(str(DecryptData(row[1]), encoding='GBK'))
-#             try:
-#                 self.mcontent.append(str(DecryptData(row[6]), encoding='utf-8'))
-#             except:
-#                 self.mcontent.append(str(DecryptData(row[6]), encoding='GBK'))
-#             try:
-#                 self.mdate.append(str(DecryptData(row[4]), encoding='utf-8'))
-#             except:
-#                 self.mdate.append(str(DecryptData(row[4]), encoding='GBK'))
-#             newItem = QListWidgetItem()
-#             newItem.setText(self.mfrom[itemIndex]+'\r\n'+self.msubject[itemIndex])
-#             mailList.insertItem(itemIndex, newItem)
-#             itemIndex += 1
-#
-#         mailList.currentItemChanged.connect(self.currentChanged)
-#         # mailList.setGridSize(QSize(200, 40))
-#         windowLayout.addWidget(mailList)
-#
-#         self.mailSubject = QLabel()
-#         self.mailSubject.setText(self.msubject[0])
-#         qFont1 = QFont("Helvetica")
-#         qFont1.setBold(True)
-#         qFont1.setPointSize(15)
-#         self.mailSubject.setFont(qFont1)
-#
-#         self.mailFrom = QLabel()
-#         self.mailFrom.setText("发件人："+self.mfrom[0])
-#         qFont2 = QFont("serif")
-#         qFont2.setBold(False)
-#         qFont2.setPointSize(10)
-#         self.mailFrom.setFont(qFont2)
-#
-#         self.mailDate = QLabel()
-#         self.mailDate.setText("时 间：" + self.mdate[0])
-#         qFont2 = QFont("serif")
-#         qFont2.setBold(False)
-#         qFont2.setPointSize(10)
-#         self.mailDate.setFont(qFont2)
-#
-#         self.webView = QWebEngineView()
-#         self.webView.setHtml(self.mcontent[0])
-#
-#         layout2 = QVBoxLayout()
-#         layout2.addWidget(self.mailSubject)
-#         layout2.addWidget(self.mailFrom)
-#         layout2.addWidget(self.mailDate)
-#         layout2.addWidget(self.webView)
-#         viewRight = QWidget()
-#         viewRight.setLayout(layout2)
-#         windowLayout.addWidget(viewRight)
-#         self.setLayout(windowLayout)
-#
-#     def currentChanged(self, currentListItem, previousListItem):
-#         index = currentListItem.listWidget().currentRow()
-#         self.webView.setHtml(self.mcontent[index])
-#         self.mailSubject.setText(self.msubject[index])
-#         self.mailFrom.setText("发件人："+self.mfrom[index])
-#         self.mailDate.setText("时 间：" + self.mdate[index])
+    def nextPageButtonClicked(self, checked):
+        if self.currentPage * 20 < self.totalMailCount:
+            self.currentPage += 1
+            self.lastPageButton.setEnabled(True)
+            self.pageCount.setText(str(self.currentPage))
+            self.fetchFromDB(self.currentPage)
+            self.mailListView.repaint()
+        if self.currentPage * 20 >= self.totalMailCount:
+            self.nextPageButton.setEnabled(False)
+
+    def itemClicked(self, index):
+        if index.model().data(index, roles['subject']) != self.mailSubject.text():
+            self.mailSubject.setText(index.model().data(index, roles['subject']))
+            self.mailFrom.setText("发件人：" + index.model().data(index, roles['from']))
+            self.mailDate.setText("时 间：" + index.model().data(index, roles['date']))
+            self.webView.setHtml(index.model().data(index, roles['content']))
+
 
 def EncryptData(plainText):
     file = open("mima.txt")
