@@ -9,7 +9,7 @@ import re
 import sqlite3
 from Crypto.Cipher import AES
 from PyQt5.QtWidgets import QApplication, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QListView, QStyledItemDelegate,\
-    QStyle, QStyleOptionButton, QPushButton, QMainWindow
+    QStyle, QStyleOptionButton, QPushButton, QMainWindow, QTreeWidget, QTreeWidgetItem
 from PyQt5.QtCore import QSize, Qt, QRectF, QPoint, QRect, QEvent
 from PyQt5.QtGui import QIcon, QFont, QStandardItemModel, QStandardItem, QPainter, QPen, QFontMetrics
 from PyQt5.QtWebEngineWidgets import QWebEngineView
@@ -127,10 +127,10 @@ class UI(QMainWindow):
         self.fetchFromDB(self.currentPage)
         self.initUI()
 
-    def fetchFromDB(self, page):
+    def fetchFromDB(self, page, mailboxName):
         conn = sqlite3.connect('test.db')
         pageOffset = str((page-1)*20+1)
-        cursor = conn.execute("SELECT * from MAILS LIMIT 20 OFFSET ?", (pageOffset,))
+        cursor = conn.execute("SELECT * from ? LIMIT 20 OFFSET ?", (mailboxName+"mails", pageOffset,))
         self.mailItemList = []
         self.mailListModel.removeRows(0, self.mailListModel.rowCount())
         rowNum = 0
@@ -349,13 +349,15 @@ def parseMailHeader(header):
     print(result)
     return result
 
-def FetchFromMailbox(numMails = 0):
-    s = IMAP4('imap.sina.com')
-    pwd = input("password: ")
+def FetchFromMailbox(mailboxName, numMails = 0):
+    s = IMAP4('imap.%s.com' % mailboxName)
+    file = open("sinamima.txt")
+    pwd = file.read()
+    # pwd = input("password: ")
     s.login('zkycaesar', pwd)
     rsp, msg_num = s.select('INBOX', False)
     conn = sqlite3.connect('test.db')
-    conn.execute('''CREATE TABLE IF NOT EXISTS MAILS
+    conn.execute('''CREATE TABLE IF NOT EXISTS ?
                    (MAILID       INT     NOT NULL,
                    SUBJECT       TEXT    NOT NULL,
                    MFROM          TEXT    NOT NULL,
@@ -363,8 +365,8 @@ def FetchFromMailbox(numMails = 0):
                    MDATE          TEXT     NOT NULL,
                    CONTENTPLAIN   TEXT,
                    CONTENTHTML    TEXT,
-                   ATTACHNAMES    TEXT);''')
-    conn.execute("DELETE FROM MAILS")
+                   ATTACHNAMES    TEXT);''', (mailboxName+"mails",))
+    conn.execute("DELETE FROM ?", (mailboxName+"mails",))
     conn.commit()
     if numMails == 0:
         numMails = int(msg_num[0])
@@ -403,7 +405,7 @@ def FetchFromMailbox(numMails = 0):
                 # print(ctype)
                 name = part.get_param('name')
                 if name:
-                    dir_name = "attachment/sina/mail#%d/" % mail_id
+                    dir_name = "attachment/%s/mail#%d/" % (mailboxName, mail_id)
                     if not os.path.isdir(dir_name):
                         os.makedirs(dir_name)
                     name = parseMailHeader(name)
@@ -423,8 +425,8 @@ def FetchFromMailbox(numMails = 0):
         mcontent_plain = EncryptData(mcontent_plain)
         mattach_names = EncryptData(mattach_names)
 
-        conn.execute("INSERT INTO MAILS (MAILID,SUBJECT,MFROM,MTO,MDATE,CONTENTPLAIN,CONTENTHTML,ATTACHNAMES) \
-                      VALUES (?,?,?,?,?,?,?,?)", (mail_id, msubject, mfrom, mto, mdate, mcontent_plain, mcontent_html, mattach_names));
+        conn.execute("INSERT INTO ? (MAILID,SUBJECT,MFROM,MTO,MDATE,CONTENTPLAIN,CONTENTHTML,ATTACHNAMES) \
+                      VALUES (?,?,?,?,?,?,?,?)", (mailboxName+"mails", mail_id, msubject, mfrom, mto, mdate, mcontent_plain, mcontent_html, mattach_names));
 
     conn.commit()
 
@@ -432,11 +434,12 @@ if __name__ == '__main__':
     # conn = sqlite3.connect('test.db')
     # conn.execute("drop table MAILS")
     # conn.commit()
-    # FetchFromMailbox(50)
-    app = QApplication(sys.argv)
-    window = UI()
-    window.show()
-    sys.exit(app.exec_())
+    # FetchFromMailbox("sina", 50)
+
+    # app = QApplication(sys.argv)
+    # window = UI()
+    # window.show()
+    # sys.exit(app.exec_())
 
     # conn = sqlite3.connect('test.db')
     # cursor = conn.execute("SELECT SUBJECT,MFROM,MTO,MDATE,CONTENTPLAIN,CONTENTHTML,ATTACHNAMES  from MAILS")
@@ -447,6 +450,13 @@ if __name__ == '__main__':
     #         except:
     #             print(str(DecryptData(row[i]), encoding='GBK'))
     #     print("\n")
+
+    mailboxName = "sina"
+    s = IMAP4('imap.%s.com' % mailboxName)
+    file = open("sinamima.txt")
+    pwd = file.read()
+    s.login('zkycaesar', pwd)
+    rsp, msg_num = s.select('TRASH', False)
 
 
 
